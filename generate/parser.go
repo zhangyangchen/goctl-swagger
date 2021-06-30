@@ -89,11 +89,11 @@ func renderServiceRoutes(service spec.Service, groups []spec.Group, paths swagge
 				}
 			}
 			if defineStruct, ok := route.RequestType.(spec.DefineStruct); ok {
-				if strings.ToUpper(route.Method) == http.MethodGet {
-					for _, member := range defineStruct.Members {
-						if strings.Contains(member.Tag, "path") {
-							continue
-						}
+				for _, member := range defineStruct.Members {
+					if strings.Contains(member.Tag, "path") {
+						continue
+					}
+					if strings.Contains(member.Tag, "form") {
 						tempKind := swaggerMapTypes[strings.Replace(member.Type.Name(), "[]", "", -1)]
 						ftype, format, ok := primitiveSchema(tempKind, member.Type.Name())
 						if !ok {
@@ -126,23 +126,54 @@ func renderServiceRoutes(service spec.Service, groups []spec.Group, paths swagge
 
 						parameters = append(parameters, sp)
 					}
-
-				} else {
-
-					reqRef := fmt.Sprintf("#/definitions/%s", route.RequestType.Name())
-
-					if len(route.RequestType.Name()) > 0 {
-						var schema = swaggerSchemaObject{
-							schemaCore: schemaCore{
-								Ref: reqRef,
-							},
+					if strings.Contains(member.Tag, "header") {
+						tempKind := swaggerMapTypes[strings.Replace(member.Type.Name(), "[]", "", -1)]
+						ftype, format, ok := primitiveSchema(tempKind, member.Type.Name())
+						if !ok {
+							ftype = tempKind.String()
+							format = "UNKNOWN"
 						}
-						parameters = append(parameters, swaggerParameterObject{
-							Name:     "body",
-							In:       "body",
-							Required: true,
-							Schema:   &schema,
-						})
+						sp := swaggerParameterObject{In: "header", Type: ftype, Format: format}
+
+						for _, tag := range member.Tags() {
+							sp.Name = tag.Name
+							if len(tag.Options) == 0 {
+								sp.Required = true
+								continue
+							}
+							for _, option := range tag.Options {
+								if strings.HasPrefix(option, defaultOption) {
+									segs := strings.Split(option, equalToken)
+									if len(segs) == 2 {
+										sp.Default = segs[1]
+									}
+								} else if !strings.HasPrefix(option, optionalOption) {
+									sp.Required = true
+								}
+							}
+						}
+
+						if len(member.Comment) > 0 {
+							sp.Description = strings.TrimLeft(member.Comment, "//")
+						}
+
+						parameters = append(parameters, sp)
+					}
+					if strings.Contains(member.Tag, "json") {
+						reqRef := fmt.Sprintf("#/definitions/%s", route.RequestType.Name())
+						if len(route.RequestType.Name()) > 0 {
+							var schema = swaggerSchemaObject{
+								schemaCore: schemaCore{
+									Ref: reqRef,
+								},
+							}
+							parameters = append(parameters, swaggerParameterObject{
+								Name:     "body",
+								In:       "body",
+								Required: true,
+								Schema:   &schema,
+							})
+						}
 					}
 				}
 			}
@@ -219,6 +250,9 @@ func renderReplyAsDefinition(d swaggerDefinitionsObject, m messageMap, p []spec.
 		schema.Title = defineStruct.Name()
 
 		for _, member := range defineStruct.Members {
+			if !strings.Contains(member.Tag, "json") {
+				continue
+			}
 			kv := keyVal{Value: schemaOfField(member)}
 			kv.Key = member.Name
 			if tag, err := member.GetPropertyName(); err == nil {
