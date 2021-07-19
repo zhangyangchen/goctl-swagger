@@ -207,6 +207,15 @@ func renderServiceRoutes(service spec.Service, groups []spec.Group, paths swagge
 				},
 			}
 
+			// set jwt
+			if value := group.GetAnnotation("jwt"); len(value) > 0 {
+				var security []swaggerSecurityRequirementObject
+				security = append(security, swaggerSecurityRequirementObject{
+					"apiKey": []string{},
+				})
+				operationObject.Security = &security
+			}
+
 			// set OperationID
 			operationObject.OperationID = route.Handler
 
